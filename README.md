@@ -1,16 +1,18 @@
 # MLB Game Outcome Prediction System
 
+---
+
 ## Disclaimer 
 
 This repository is an open source project originally created by romanesquibel562.
 Goals of this project are to 
--Improve overall accuracies of base models 
--Maximize profit of predictions using betting odd edges
--Improve UI of prediction platform 
--Add in more custom features and models to test accuracy improvements 
--Add in more baseball specific analysis to test accuracy improvements
--Translate prediction system to other major sports 
--Overall, just improve the base project to maximize sports betting profit
+- Improve overall accuracies of base models 
+- Maximize profit of predictions using betting odd edges
+- Improve UI of prediction platform 
+- Add in more custom features and models to test accuracy improvements 
+- Add in more baseball specific analysis to test accuracy improvements
+- Translate prediction system to other major sports 
+- Overall, just improve the base project to maximize sports betting profit
 
 ## Overview
 
