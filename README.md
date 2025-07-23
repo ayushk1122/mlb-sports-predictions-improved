@@ -1,5 +1,17 @@
 # MLB Game Outcome Prediction System
 
+## Disclaimer 
+
+This repository is an open source project originally created by romanesquibel562.
+Goals of this project are to 
+-Improve overall accuracies of base models 
+-Maximize profit of predictions using betting odd edges
+-Improve UI of prediction platform 
+-Add in more custom features and models to test accuracy improvements 
+-Add in more baseball specific analysis to test accuracy improvements
+-Translate prediction system to other major sports 
+-Overall, just improve the base project to maximize sports betting profit
+
 ## Overview
 
 This repository contains a complete, production-grade machine learning pipeline that forecasts the outcomes of daily MLB games. It leverages real-time Statcast data, historical team and player performance, pitcher trends, and recent team momentum to generate win probability predictions for every scheduled MLB matchup on a given day.
@@ -249,7 +261,7 @@ Integrate an alert system for best-value picks
 
 Add calibration metrics and ranking confidence intervals
 
-## Author:
+## Original Open Source Author:
 Roman Esquibel
 
 Machine Learning Engineer | Sports Analytics Developer | Masters Student at California State University, Fullerton
