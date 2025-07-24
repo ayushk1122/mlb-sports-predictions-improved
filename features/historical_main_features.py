@@ -63,6 +63,8 @@ def load_csv_by_prefix(prefix, date_str, directory=PROCESSED_DIR):
 
 
 def map_abbrev(team):
+    if pd.isna(team) or team is None:
+        return None
     return TEAM_ABBREV_MAP.get(team.upper().strip(), team.upper().strip())
 
 
@@ -151,10 +153,26 @@ def build_historical_main_dataset():
     for col in final_df.select_dtypes(include=["float64", "int64"]).columns:
         final_df[col] = final_df[col].fillna(final_df[col].mean())
 
+    # Check if actual_winner column exists
+    if "actual_winner" not in final_df.columns:
+        logger.warning("No actual_winner column found. This may be because no historical results are available.")
+        logger.warning("Creating empty actual_winner column for training purposes.")
+        final_df["actual_winner"] = None
+    
     final_df = final_df[final_df["actual_winner"].notna()]
-    final_df["home_team"] = final_df["home_team"].map(map_abbrev)
-    final_df["away_team"] = final_df["away_team"].map(map_abbrev)
-    final_df["actual_winner"] = final_df["actual_winner"].map(map_abbrev)
+    
+    # Check if required team columns exist before mapping
+    if "home_team" not in final_df.columns:
+        logger.error("home_team column not found in final dataset")
+        return
+    if "away_team" not in final_df.columns:
+        logger.error("away_team column not found in final dataset")
+        return
+    
+    # Apply team name mapping with defensive checks
+    final_df["home_team"] = final_df["home_team"].apply(lambda x: map_abbrev(x) if pd.notna(x) else None)
+    final_df["away_team"] = final_df["away_team"].apply(lambda x: map_abbrev(x) if pd.notna(x) else None)
+    final_df["actual_winner"] = final_df["actual_winner"].apply(lambda x: map_abbrev(x) if pd.notna(x) else None)
 
     final_df.to_csv(CLEAN_OUTPUT_PATH, index=False)
     logger.info(f"Saved clean final dataset to {CLEAN_OUTPUT_PATH} with {len(final_df)} rows.")

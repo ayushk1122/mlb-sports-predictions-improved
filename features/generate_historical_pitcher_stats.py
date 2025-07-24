@@ -21,8 +21,12 @@ logger = logging.getLogger(__name__)
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
-def get_target_dates(days_back):
-    return [(datetime.today().date() - timedelta(days=i)) for i in range(1, days_back + 1)]
+def get_target_dates(days_back, target_date=None):
+    if target_date is None:
+        base_date = datetime.today().date()
+    else:
+        base_date = target_date
+    return [(base_date - timedelta(days=i)) for i in range(1, days_back + 1)]
 
 def get_matchup_file(date_obj):
     return RAW_DIR / f"mlb_probable_pitchers_{date_obj}.csv"
@@ -30,8 +34,8 @@ def get_matchup_file(date_obj):
 def get_output_file(date_obj):
     return PROCESSED_DIR / f"pitcher_stat_features_{date_obj}.csv"
 
-def run_rolling_pitcher_stats(days_back: int = 30):
-    for date in get_target_dates(days_back):
+def run_rolling_pitcher_stats(days_back: int = 30, target_date=None):
+    for date in get_target_dates(days_back, target_date):
         matchup_file = get_matchup_file(date)
         output_file = get_output_file(date)
 

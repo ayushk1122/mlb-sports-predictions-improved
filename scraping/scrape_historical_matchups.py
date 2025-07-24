@@ -1,12 +1,11 @@
 # scrape_historical_matchups.py (rolling-enabled)
 
-from pathlib import Path
-import os
-import pandas as pd
-from datetime import datetime, timedelta
-from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from bs4 import BeautifulSoup
+import pandas as pd
+from datetime import datetime, timedelta, date
+from pathlib import Path
 import time
 import logging
 import argparse
@@ -92,26 +91,55 @@ def scrape_historical_matchups(date_obj: datetime) -> pd.DataFrame:
     finally:
         driver.quit()
 
-def scrape_rolling_window(days_back: int):
-    end_date = datetime.today() - timedelta(days=1)  # yesterday
+def scrape_rolling_window(days_back: int, target_date=None):
+    if target_date is None:
+        end_date = datetime.today() - timedelta(days=1)  # yesterday
+    else:
+        end_date = target_date - timedelta(days=1)  # day before target date
+    
     start_date = end_date - timedelta(days=days_back - 1)
 
-    logger.info(f"Scraping rolling window: {start_date.date()} to {end_date.date()}")
+    logger.info(f"Scraping rolling window: {start_date} to {end_date}")
 
     current = start_date
     while current <= end_date:
         try:
-            scrape_historical_matchups(current)
+            # Convert date to datetime for the scraping function
+            if isinstance(current, date):
+                current_datetime = datetime.combine(current, datetime.min.time())
+            else:
+                current_datetime = current
+            scrape_historical_matchups(current_datetime)
         except Exception as e:
             logger.error(f" Failed to scrape {current.strftime('%Y-%m-%d')}: {e}")
         current += timedelta(days=1)
 
+def scrape_target_date_matchups(target_date):
+    """Scrape matchups for a specific target date."""
+    logger.info(f"Scraping matchups for target date: {target_date}")
+    
+    # Convert date to datetime for the scraping function
+    if isinstance(target_date, date):
+        target_datetime = datetime.combine(target_date, datetime.min.time())
+    else:
+        target_datetime = target_date
+    
+    try:
+        return scrape_historical_matchups(target_datetime)
+    except Exception as e:
+        logger.error(f"Failed to scrape matchups for {target_date}: {e}")
+        return None
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--rolling", type=int, help="Scrape the past N days ending yesterday (e.g., 90)")
+    parser.add_argument("--date", type=str, help="Scrape matchups for a specific date (YYYY-MM-DD)")
     args = parser.parse_args()
 
-    if args.rolling:
+    if args.date:
+        target_date = datetime.strptime(args.date, '%Y-%m-%d').date()
+        scrape_target_date_matchups(target_date)
+    elif args.rolling:
         scrape_rolling_window(args.rolling)
     else:
         # Default: scrape yesterday only
@@ -119,4 +147,4 @@ if __name__ == "__main__":
         scrape_historical_matchups(date)
         
     # cd C:\Users\roman\baseball_forecast_project\scraping
-    # python scrape_historical_matchups.py  --rolling 20
+    # python scrape_historical_matchups.py --date 2025-07-23

@@ -19,7 +19,8 @@ PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 def enrich_batter_features_by_team(player_feature_path: Path,
                                    matchup_path: Path,
-                                   batter_lookup_path: Path = None) -> Path | None:
+                                   batter_lookup_path: Path = None,
+                                   target_date=None) -> Path | None:
     try:
         # === 1. Load player features ===
         player_df = pd.read_csv(player_feature_path)
@@ -82,7 +83,10 @@ def enrich_batter_features_by_team(player_feature_path: Path,
         team_summary = filtered.groupby('team_name')[available_cols].agg('mean').reset_index()
 
         # === 7. Save output ===
-        output_path = PROCESSED_DIR / f"team_batter_stats_{datetime.today().strftime('%Y-%m-%d')}.csv"
+        if target_date is not None:
+            output_path = PROCESSED_DIR / f"team_batter_stats_{target_date.strftime('%Y-%m-%d')}.csv"
+        else:
+            output_path = PROCESSED_DIR / f"team_batter_stats_{datetime.today().strftime('%Y-%m-%d')}.csv"
         team_summary.to_csv(output_path, index=False)
         logger.info(f"Saved aggregated team batter stats to: {output_path}")
         return output_path

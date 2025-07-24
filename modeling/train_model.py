@@ -17,7 +17,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
 
 
-def train_model(historical_path, today_path):
+def train_model(historical_path, today_path, target_date=None):
     logger.info(f"Loading historical dataset from {historical_path}")
     historical_df = pd.read_csv(historical_path)
 
@@ -49,7 +49,7 @@ def train_model(historical_path, today_path):
     logger.info(f"MAE: {mae:.3f}, MSE: {mse:.3f}, MAPE: {mape:.2f}%")
 
     # Load today's features
-    logger.info(f"Loading today’s features from {today_path}")
+    logger.info(f"Loading today's features from {today_path}")
     today_df = pd.read_csv(today_path)
     X_today = today_df[numeric_cols]
 
@@ -67,7 +67,10 @@ def train_model(historical_path, today_path):
     })
 
     # Save readable predictions
-    output_name = f"readable_win_predictions_for_{today_df['game_date'].iloc[0]}_using_{datetime.today().strftime('%Y-%m-%d')}.csv"
+    if target_date is not None:
+        output_name = f"readable_win_predictions_for_{target_date.strftime('%Y-%m-%d')}_using_{datetime.today().strftime('%Y-%m-%d')}.csv"
+    else:
+        output_name = f"readable_win_predictions_for_{today_df['game_date'].iloc[0]}_using_{datetime.today().strftime('%Y-%m-%d')}.csv"
     output_path = PROCESSED_DIR / output_name
     # output_path = os.path.join("C:/Users/roman/baseball_forecast_project/data/processed", output_name)
     result_df.to_csv(output_path, index=False)

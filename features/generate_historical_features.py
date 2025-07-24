@@ -21,17 +21,24 @@ from features.historical_main_features import build_historical_main_dataset
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-def generate_all_historical_features(days_back: int = 20):
-    logger.info(f"Generating full historical feature set for the past {days_back} days...")
+def generate_all_historical_features(days_back: int = 20, target_date=None):
+    if target_date is None:
+        target_date = datetime.today().date()
+    
+    logger.info(f"Generating full historical feature set for the past {days_back} days from {target_date}...")
 
-    # Step 1: Scrape matchups
-    scrape_rolling_window(days_back)
+    # Step 1: Scrape historical matchups (rolling window)
+    scrape_rolling_window(days_back, target_date=target_date)
+    
+    # Step 1A: Also scrape matchups for the target date itself
+    from scraping.scrape_historical_matchups import scrape_target_date_matchups
+    scrape_target_date_matchups(target_date)
 
     # Step 2: Generate team form
     run_team_form_rolling()
 
     # Step 3: Generate pitcher stats
-    run_rolling_pitcher_stats()
+    run_rolling_pitcher_stats(target_date=target_date)
 
     # Step 4: Generate batter stats
     run_rolling_batter_generator(days_back)

@@ -9,7 +9,7 @@ import pytz
 import time
 from pathlib import Path
 
-def run_scrape_matchups():
+def run_scrape_matchups(target_date=None):
     # === Paths ===
     BASE_DIR = Path(__file__).resolve().parents[1]
     raw_data_dir = BASE_DIR / "data" / "raw"
@@ -17,7 +17,10 @@ def run_scrape_matchups():
 
     # === Date and URL ===
     eastern = pytz.timezone('US/Eastern')
-    today = datetime.now(eastern).date()
+    if target_date is None:
+        today = datetime.now(eastern).date()
+    else:
+        today = target_date
     date_str = today.strftime('%Y-%m-%d')
     url = f"https://www.mlb.com/probable-pitchers/{date_str}"
 
@@ -85,7 +88,7 @@ def run_scrape_matchups():
         df_today = df[df['game_date'] == today].copy()
 
         if df_today.empty:
-            raise ValueError(f"No matchups found for today's date: {today}")
+            raise ValueError(f"No matchups found for target date: {today}")
 
         # Save output
         output_path = raw_data_dir / f"mlb_probable_pitchers_{today}.csv"

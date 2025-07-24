@@ -14,26 +14,30 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 RAW_DIR = BASE_DIR / "data" / "raw"
 RAW_DIR.mkdir(parents=True, exist_ok=True)
 
-def scrape_statcast_today_or_recent(n_days=3):
-    print(f"Attempting to scrape Statcast data for today first, then the last {n_days} days...")
-
-    today = datetime.today()
+def scrape_statcast_today_or_recent(n_days=3, target_date=None):
+    if target_date is None:
+        print(f"Attempting to scrape Statcast data for today first, then the last {n_days} days...")
+        today = datetime.today()
+    else:
+        print(f"Attempting to scrape Statcast data for target date {target_date}, then the last {n_days} days...")
+        today = target_date
+    
     successful_scrapes = []
 
-    # Step 1: Try scraping today
+    # Step 1: Try scraping target date (or today if not specified)
     date_str = today.strftime('%Y-%m-%d')
-    print(f"Trying today's date: {date_str}")
+    print(f"Trying target date: {date_str}")
     try:
         df = statcast(start_dt=date_str, end_dt=date_str)
         if not df.empty:
             output_path = RAW_DIR / f"statcast_{date_str}.csv"
             df.to_csv(output_path, index=False)
-            print(f"Saved {len(df)} rows for today to: {output_path}")
+            print(f"Saved {len(df)} rows for target date to: {output_path}")
             return output_path, date_str
         else:
-            print("No data for today, trying previous days...")
+            print("No data for target date, trying previous days...")
     except Exception as e:
-        print(f"Error scraping today's data: {e}")
+        print(f"Error scraping target date data: {e}")
 
     # Step 2: Scrape recent past days
     for delta in range(1, n_days + 5):
@@ -50,7 +54,7 @@ def scrape_statcast_today_or_recent(n_days=3):
         except Exception as e:
             print(f"Error scraping data for {date_str}: {e}")
 
-    print("No Statcast data found for today or recent days.")
+    print("No Statcast data found for target date or recent days.")
     return None, None
 
 # Manual test
