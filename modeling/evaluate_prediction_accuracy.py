@@ -48,13 +48,26 @@ def ensure_actual_results_exist(pred_date: str):
     # Try to scrape the actual results
     logger.info(f"Actual results not found for {pred_date}, attempting to scrape...")
     try:
-        from scraping.scrape_game_results import scrape_results_for_target_date
-        results_path = scrape_results_for_target_date(pred_date_obj)
-        if results_path:
-            logger.info(f"Successfully scraped actual results for {pred_date}")
-            return True
+        from scraping.scrape_game_results import scrape_results_for_date
+        from scraping.scrape_historical_matchups import scrape_historical_matchups
+        # Find the matchup file for this date
+        BASE_DIR = Path(__file__).resolve().parents[1]
+        raw_dir = BASE_DIR / "data" / "raw" / "historical_matchups"
+        output_dir = BASE_DIR / "data" / "processed"
+        matchup_file = raw_dir / f"historical_matchups_{pred_date}.csv"
+        if not matchup_file.exists():
+            logger.info(f"Matchup file not found for {pred_date}, generating it...")
+            scrape_historical_matchups(pred_date_obj)
+        if matchup_file.exists():
+            scrape_results_for_date(pred_date_obj, matchup_file, output_dir)
+            if actual_file.exists():
+                logger.info(f"Successfully scraped actual results for {pred_date}")
+                return True
+            else:
+                logger.error(f"Failed to scrape actual results for {pred_date}")
+                return False
         else:
-            logger.error(f"Failed to scrape actual results for {pred_date}")
+            logger.error(f"No matchup file found for {pred_date}, cannot scrape results.")
             return False
     except Exception as e:
         logger.error(f"Error scraping actual results for {pred_date}: {e}")
@@ -102,8 +115,18 @@ def evaluate_predictions(pred_date: str, auto_scrape=True):
     pred_df['game_date'] = pd.to_datetime(pred_df['Game Date']).dt.date
     actual_df['game_date'] = pd.to_datetime(actual_df['game_date']).dt.date
 
+    # Normalize both DataFrames to abbreviations
+    pred_df['home_team'] = pred_df['home_team'].map(team_name_map).fillna(pred_df['home_team'])
+    pred_df['away_team'] = pred_df['away_team'].map(team_name_map).fillna(pred_df['away_team'])
+    actual_df['home_team'] = actual_df['home_team'].map(team_name_map).fillna(actual_df['home_team'])
+    actual_df['away_team'] = actual_df['away_team'].map(team_name_map).fillna(actual_df['away_team'])
+
     merged = pd.merge(pred_df, actual_df, on=['game_date', 'home_team', 'away_team'], how='inner')
     
+    # Normalize both columns to abbreviations before comparison
+    merged['Predicted Winner'] = merged['Predicted Winner'].map(team_name_map).fillna(merged['Predicted Winner'])
+    merged['winner'] = merged['winner'].map(team_name_map).fillna(merged['winner'])
+
     merged['Correct'] = merged['Predicted Winner'] == merged['winner']
 
     correct = merged['Correct'].sum()
