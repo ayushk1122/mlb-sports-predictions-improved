@@ -4,8 +4,9 @@ import glob
 import logging
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+import argparse
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -70,9 +71,27 @@ def run_team_form_rolling():
             continue
         scrape_team_form_api_for_date(date_str)
 
-if __name__ == "__main__":
-    run_team_form_rolling()
+# === NEW: Rolling window team form generator ===
+def run_team_form_rolling_window(days_back=45, overwrite=False, target_date=None):
+    if target_date is None:
+        base_date = datetime.today().date()
+    else:
+        base_date = target_date
+    for i in range(1, days_back + 1):
+        date = base_date - timedelta(days=i)
+        date_str = date.strftime('%Y-%m-%d')
+        output_path = PROCESSED_DIR / f"team_form_{date_str}.csv"
+        if output_path.exists() and not overwrite:
+            logger.info(f"Skipping {date_str} (already exists)")
+            continue
+        scrape_team_form_api_for_date(date_str)
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--days_back", type=int, default=45, help="How many days back to generate team form for.")
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing files.")
+    args = parser.parse_args()
+    run_team_form_rolling_window(days_back=args.days_back, overwrite=args.overwrite)
 
     # cd C:\Users\roman\baseball_forecast_project\features
-    # python generate_historical_team_form.py 
+    # python generate_historical_team_form.py --days_back 45 --overwrite 

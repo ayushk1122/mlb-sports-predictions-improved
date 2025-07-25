@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 # Base directories
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
+HISTORICAL_MATCHUP_DIR = RAW_DIR / "historical_matchups"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+
 
 def get_target_dates(days_back, target_date=None):
     if target_date is None:
@@ -28,36 +30,45 @@ def get_target_dates(days_back, target_date=None):
         base_date = target_date
     return [(base_date - timedelta(days=i)) for i in range(1, days_back + 1)]
 
+
 def get_matchup_file(date_obj):
-    return RAW_DIR / f"mlb_probable_pitchers_{date_obj}.csv"
+    # Use the historical matchups file for each date
+    return HISTORICAL_MATCHUP_DIR / f"historical_matchups_{date_obj}.csv"
+
 
 def get_output_file(date_obj):
     return PROCESSED_DIR / f"pitcher_stat_features_{date_obj}.csv"
 
-def run_rolling_pitcher_stats(days_back: int = 30, target_date=None):
+
+def run_rolling_pitcher_stats(days_back: int = 45, target_date=None, overwrite=False):
     for date in get_target_dates(days_back, target_date):
         matchup_file = get_matchup_file(date)
         output_file = get_output_file(date)
 
         if not matchup_file.exists():
-            logger.warning(f"Skipping {date} — matchup file not found.")
+            logger.warning(f"Skipping {date} — matchup file not found: {matchup_file}")
             continue
 
-        if output_file.exists():
-            logger.info(f"Skipping {date} — pitcher output already exists.")
+        if output_file.exists() and not overwrite:
+            logger.info(f"Skipping {date} — pitcher output already exists: {output_file}")
             continue
 
-        logger.info(f"Generating pitcher features for {date}")
-        build_pitcher_stat_features(matchup_file)
+        logger.info(f"Generating pitcher features for {date} using {matchup_file}")
+        try:
+            build_pitcher_stat_features(matchup_file)
+            logger.info(f"Saved pitcher features to {output_file}")
+        except Exception as e:
+            logger.error(f"Failed to build pitcher features for {date}: {e}")
 
 # Standalone CLI execution
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate historical pitcher stats over a rolling window.")
-    parser.add_argument("--days_back", type=int, default=30, help="How many days back to generate pitcher stats for.")
+    parser.add_argument("--days_back", type=int, default=45, help="How many days back to generate pitcher stats for.")
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing pitcher stat files.")
     args = parser.parse_args()
 
-    run_rolling_pitcher_stats(days_back=args.days_back)
+    run_rolling_pitcher_stats(days_back=args.days_back, overwrite=args.overwrite)
 
     # Example run from terminal:
     # cd C:\Users\roman\baseball_forecast_project\features
-    # python generate_historical_pitcher_stats.py --rolling 20
+    # python generate_historical_pitcher_stats.py --days_back 45 --overwrite

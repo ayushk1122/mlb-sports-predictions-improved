@@ -3,7 +3,9 @@
 import argparse
 import logging
 from datetime import datetime
+import sys
 from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 
 # Setup logger

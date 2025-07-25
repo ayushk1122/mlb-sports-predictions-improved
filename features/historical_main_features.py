@@ -1,9 +1,10 @@
 # historical_main_features.py
 
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import logging
+import argparse
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -29,7 +30,6 @@ TEAM_ABBREV_MAP = {
     "D-BACKS": "ARI"
 }
 
-
 def normalize_name(name):
     if pd.isna(name):
         return ""
@@ -40,10 +40,8 @@ def normalize_name(name):
             .replace(".", "")
     )
 
-
-def extract_date_from_filename(path: Path, prefix: str):
-    return path.name.replace(f"{prefix}_", "").replace(".csv", "")
-
+def map_abbrev(team):
+    return TEAM_ABBREV_MAP.get(team.upper().strip(), team.upper().strip())
 
 def load_csv_by_prefix(prefix, date_str, directory=PROCESSED_DIR):
     path = directory / f"{prefix}_{date_str}.csv"
@@ -51,49 +49,46 @@ def load_csv_by_prefix(prefix, date_str, directory=PROCESSED_DIR):
         try:
             df = pd.read_csv(path)
             if df.empty:
-                logger.warning(f"{prefix} for {date_str} is empty.")
+                logger.warning(f"{prefix} for {date_str} is empty (0 rows).")
                 return None
             return df
         except Exception as e:
             logger.error(f"Failed to load {prefix} for {date_str}: {e}")
             return None
     else:
-        logger.warning(f"Missing {prefix} for {date_str}")
+        logger.warning(f"Missing {prefix} for {date_str} - file does not exist: {path}")
         return None
 
-
-def map_abbrev(team):
-    if pd.isna(team) or team is None:
-        return None
-    return TEAM_ABBREV_MAP.get(team.upper().strip(), team.upper().strip())
-
-
-def build_historical_main_dataset():
-    result_files = sorted(PROCESSED_DIR.glob("historical_results_*.csv"))
-    if not result_files:
-        logger.error("No historical_results_*.csv files found.")
-        return
-
+def build_historical_main_dataset(days_back=45, target_date=None):
+    logger.info(f"=== STARTING HISTORICAL MAIN DATASET BUILD for last {days_back} days ===")
+    if target_date is None:
+        base_date = datetime.today().date()
+    else:
+        base_date = target_date
     all_rows = []
-
-    for result_file in result_files:
-        date_str = extract_date_from_filename(result_file, "historical_results")
-        logger.info(f"Processing game date: {date_str}")
-
+    processed_dates = []
+    skipped_dates = []
+    for i in range(1, days_back + 1):
+        date = base_date - timedelta(days=i)
+        date_str = date.strftime('%Y-%m-%d')
+        logger.info(f"\n=== Processing game date: {date_str} ===")
+        # Build file paths for this date
+        result_file = PROCESSED_DIR / f"historical_results_{date_str}.csv"
+        matchup_file = HISTORICAL_MATCHUP_DIR / f"historical_matchups_{date_str}.csv"
+        pitcher_file = PROCESSED_DIR / f"pitcher_stat_features_{date_str}.csv"
+        batter_file = PROCESSED_DIR / f"batter_stat_features_{date_str}.csv"
+        team_form_file = PROCESSED_DIR / f"team_form_{date_str}.csv"
+        # Try to load all files
         try:
             results_df = pd.read_csv(result_file)
-            matchup_df = load_csv_by_prefix("historical_matchups", date_str, HISTORICAL_MATCHUP_DIR)
-            pitcher_df = load_csv_by_prefix("pitcher_stat_features", date_str)
-            batter_df = load_csv_by_prefix("batter_stat_features", date_str)
-            team_df = load_csv_by_prefix("team_form", date_str)
+            matchup_df = pd.read_csv(matchup_file)
+            pitcher_df = pd.read_csv(pitcher_file)
+            batter_df = pd.read_csv(batter_file)
+            team_df = pd.read_csv(team_form_file)
         except Exception as e:
-            logger.error(f"Error reading CSVs for {date_str}: {e}")
+            logger.warning(f"Skipping {date_str} due to missing or invalid files: {e}")
+            skipped_dates.append(date_str)
             continue
-
-        if any(x is None for x in [matchup_df, pitcher_df, batter_df, team_df]):
-            logger.warning(f"Skipping {date_str} due to missing or invalid files.")
-            continue
-
         try:
             # Normalize team and player names
             matchup_df["home_pitcher"] = matchup_df["home_pitcher"].apply(normalize_name)
@@ -101,16 +96,13 @@ def build_historical_main_dataset():
             matchup_df["home_team"] = matchup_df["home_team"].str.upper().str.strip()
             matchup_df["away_team"] = matchup_df["away_team"].str.upper().str.strip()
             pitcher_df["full_name"] = pitcher_df["full_name"].apply(normalize_name)
-
             # Merge pitcher stats
             df = matchup_df.merge(pitcher_df, left_on="home_pitcher", right_on="full_name", how="left")
             df = df.rename(columns={col: f"home_pitcher_{col}" for col in pitcher_df.columns if col != "full_name"})
             df.drop(columns=["full_name"], inplace=True)
-
             df = df.merge(pitcher_df, left_on="away_pitcher", right_on="full_name", how="left")
             df = df.rename(columns={col: f"away_pitcher_{col}" for col in pitcher_df.columns if col != "full_name"})
             df.drop(columns=["full_name"], inplace=True)
-
             # Merge batter stats
             batter_df["team"] = batter_df["team"].str.upper().str.strip()
             df = df.merge(batter_df, left_on="home_team", right_on="team", how="left")
@@ -119,68 +111,56 @@ def build_historical_main_dataset():
             df = df.merge(batter_df, left_on="away_team", right_on="team", how="left")
             df = df.rename(columns={col: f"away_team_{col}" for col in batter_df.columns if col != "team"})
             df.drop(columns=["team"], inplace=True)
-
             # Merge team form
             team_df["team"] = team_df["team"].str.upper().str.strip()
             df = df.merge(team_df.add_prefix("home_"), left_on="home_team", right_on="home_team", how="left")
             df = df.merge(team_df.add_prefix("away_"), left_on="away_team", right_on="away_team", how="left")
-
             # Normalize and merge actual results
             results_df["home_team"] = results_df["home_team"].str.upper().str.strip()
             results_df["away_team"] = results_df["away_team"].str.upper().str.strip()
             results_df["winner"] = results_df["winner"].str.upper().str.strip()
-
             df = df.merge(results_df, on=["game_date", "home_team", "away_team"], how="inner")
             df["actual_winner"] = df["winner"]
-
             all_rows.append(df)
-
+            processed_dates.append(date_str)
         except Exception as e:
             logger.error(f"Merge failed for {date_str}: {e}")
+            skipped_dates.append(date_str)
             continue
-
+    logger.info(f"\n=== PROCESSING SUMMARY ===")
+    logger.info(f"Processed dates: {processed_dates}")
+    logger.info(f"Skipped dates: {skipped_dates}")
+    logger.info(f"Total rows collected: {sum(len(df) for df in all_rows)}")
     if not all_rows:
         logger.warning("No rows processed. Final dataset was not created.")
         return
-
+    logger.info("Concatenating all rows...")
     final_df = pd.concat(all_rows, ignore_index=True)
+    logger.info(f"Final dataset shape: {final_df.shape}")
     final_df.to_csv(RAW_OUTPUT_PATH, index=False)
-
+    logger.info(f"Saved raw dataset to {RAW_OUTPUT_PATH}")
     # CLEANING
+    logger.info("Starting data cleaning...")
+    initial_rows = len(final_df)
     final_df.drop_duplicates(subset=["game_date", "home_team", "away_team"], inplace=True)
+    logger.info(f"After dropping duplicates: {len(final_df)} rows (removed {initial_rows - len(final_df)})")
     final_df.dropna(axis=1, how="all", inplace=True)
-
+    logger.info(f"After dropping all-NaN columns: {len(final_df.columns)} columns")
     for col in final_df.select_dtypes(include=["float64", "int64"]).columns:
         final_df[col] = final_df[col].fillna(final_df[col].mean())
-
-    # Check if actual_winner column exists
-    if "actual_winner" not in final_df.columns:
-        logger.warning("No actual_winner column found. This may be because no historical results are available.")
-        logger.warning("Creating empty actual_winner column for training purposes.")
-        final_df["actual_winner"] = None
-    
     final_df = final_df[final_df["actual_winner"].notna()]
-    
-    # Check if required team columns exist before mapping
-    if "home_team" not in final_df.columns:
-        logger.error("home_team column not found in final dataset")
-        return
-    if "away_team" not in final_df.columns:
-        logger.error("away_team column not found in final dataset")
-        return
-    
-    # Apply team name mapping with defensive checks
-    final_df["home_team"] = final_df["home_team"].apply(lambda x: map_abbrev(x) if pd.notna(x) else None)
-    final_df["away_team"] = final_df["away_team"].apply(lambda x: map_abbrev(x) if pd.notna(x) else None)
-    final_df["actual_winner"] = final_df["actual_winner"].apply(lambda x: map_abbrev(x) if pd.notna(x) else None)
-
+    logger.info(f"After removing rows with no actual_winner: {len(final_df)} rows")
+    final_df["home_team"] = final_df["home_team"].map(map_abbrev)
+    final_df["away_team"] = final_df["away_team"].map(map_abbrev)
+    final_df["actual_winner"] = final_df["actual_winner"].map(map_abbrev)
     final_df.to_csv(CLEAN_OUTPUT_PATH, index=False)
     logger.info(f"Saved clean final dataset to {CLEAN_OUTPUT_PATH} with {len(final_df)} rows.")
-
+    logger.info(f"Dataset date range: {final_df['game_date'].min()} to {final_df['game_date'].max()}")
 
 if __name__ == "__main__":
-    build_historical_main_dataset()
-
-# Run command from terminal:
-# cd C:\Users\roman\baseball_forecast_project\features
-# python historical_main_features.py
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--days_back", type=int, default=45, help="How many days back to include in the rolling window.")
+    parser.add_argument("--target_date", type=str, default=None, help="End date for the rolling window (YYYY-MM-DD). Defaults to today.")
+    args = parser.parse_args()
+    target_date = datetime.strptime(args.target_date, "%Y-%m-%d").date() if args.target_date else None
+    build_historical_main_dataset(days_back=args.days_back, target_date=target_date)

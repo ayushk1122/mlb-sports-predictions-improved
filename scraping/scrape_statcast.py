@@ -57,9 +57,34 @@ def scrape_statcast_today_or_recent(n_days=3, target_date=None):
     print("No Statcast data found for target date or recent days.")
     return None, None
 
-# Manual test
-if __name__ == "__main__":
-    scrape_statcast_today_or_recent(n_days=3)
+# === NEW: Rolling window statcast scraper ===
+def scrape_statcast_rolling(days_back=45, target_date=None, overwrite=False):
+    if target_date is None:
+        base_date = datetime.today().date()
+    else:
+        base_date = target_date
+    for i in range(1, days_back + 1):
+        date = base_date - timedelta(days=i)
+        date_str = date.strftime('%Y-%m-%d')
+        output_path = RAW_DIR / f"statcast_{date_str}.csv"
+        if output_path.exists() and not overwrite:
+            print(f"Skipping {date_str} (already exists)")
+            continue
+        try:
+            print(f"Scraping Statcast for {date_str}...")
+            df = statcast(start_dt=date_str, end_dt=date_str)
+            if not df.empty:
+                df.to_csv(output_path, index=False)
+                print(f"Saved {len(df)} rows to: {output_path}")
+            else:
+                print(f"No data for {date_str}")
+        except Exception as e:
+            print(f"Error scraping data for {date_str}: {e}")
 
-# cd C:\Users\roman\baseball_forecast_project\scraping
-# python scrape_statcast.py
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--days_back", type=int, default=45, help="How many days back to scrape.")
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing files.")
+    args = parser.parse_args()
+    scrape_statcast_rolling(days_back=args.days_back, overwrite=args.overwrite)

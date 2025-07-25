@@ -9,6 +9,7 @@ import glob
 from datetime import datetime, timedelta
 import logging
 import argparse
+import re
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -32,12 +33,20 @@ def find_latest_matchup_file(directory: Path) -> Path:
 
 def extract_game_date_from_filename(filepath: Path) -> datetime.date:
     filename = filepath.name
-    date_part = filename.replace("mlb_probable_pitchers_", "").replace(".csv", "")
-    try:
-        return datetime.strptime(date_part, "%Y-%m-%d").date()
-    except Exception as e:
-        logger.warning(f"Failed to parse date from filename '{filename}': {e}")
-        return datetime.today().date()
+    # Try both naming conventions
+    for prefix in ["mlb_probable_pitchers_", "historical_matchups_"]:
+        if filename.startswith(prefix):
+            date_part = filename.replace(prefix, "").replace(".csv", "")
+            try:
+                return datetime.strptime(date_part, "%Y-%m-%d").date()
+            except Exception as e:
+                logger.warning(f"Failed to parse date from filename '{filename}': {e}")
+    # Fallback: try to extract date from anywhere in the filename
+    m = re.search(r"(\d{4}-\d{2}-\d{2})", filename)
+    if m:
+        return datetime.strptime(m.group(1), "%Y-%m-%d").date()
+    logger.warning(f"Could not extract date from filename '{filename}', using today.")
+    return datetime.today().date()
 
 
 def build_pitcher_stat_features(matchup_path: Path):
