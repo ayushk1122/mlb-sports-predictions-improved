@@ -1,8 +1,4 @@
 game_date,away_team,home_team,away_pitcher,home_pitcher
-2025-07-23,NYY,TOR,Max Fried,Chris Bassitt
-2025-07-23,BOS,PHI,Lucas Giolito,Jesús Luzardo
-2025-07-23,CWS,TB,Jonathan Cannon,Taj Bradley
-2025-07-23,OAK,TEX,JP Sears,Patrick Corbin
 2025-07-23,CIN,WSH,Nick Lodolo,Michael Soroka
 2025-07-23,SD,MIA,Dylan Cease,Sandy Alcantara
 2025-07-23,SF,ATL,Justin Verlander,Spencer Strider
@@ -14,3 +10,7 @@ game_date,away_team,home_team,away_pitcher,home_pitcher
 2025-07-23,HOU,ARI,Brandon Walter,Brandon Pfaadt
 2025-07-23,MIN,LAD,Chris Paddack,Tyler Glasnow
 2025-07-23,BAL,CLE,Zach Eflin,Slade Cecconi
+2025-07-23,NYY,TOR,Max Fried,Chris Bassitt
+2025-07-23,BOS,PHI,Lucas Giolito,Jesús Luzardo
+2025-07-23,CWS,TB,Jonathan Cannon,Taj Bradley
+2025-07-23,OAK,TEX,JP Sears,Patrick Corbin

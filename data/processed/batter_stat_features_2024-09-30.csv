@@ -1,0 +1,7 @@
+mlbam_id,lookup_player_name,team,avg_launch_speed,avg_bat_speed,avg_swing_length,total_pitches,recent_home_runs,recent_strikeouts,HR,SO,PA,AVG,SLG
+542303,marcell ozuna,ATL,82.6,71.94,7.07,35,0,3,13.0,90.0,396.0,0.24,0.39
+596019,francisco lindor,NYM,92.53,72.67,7.71,16,1,0,20.0,85.0,462.0,0.25,0.44
+607043,brandon nimmo,NYM,83.38,70.61,7.47,30,1,4,19.0,81.0,414.0,0.26,0.47
+621566,matt olson,ATL,80.52,74.09,7.38,40,0,4,18.0,106.0,453.0,0.26,0.47
+624413,pete alonso,NYM,88.83,69.44,7.48,20,0,2,22.0,105.0,450.0,0.27,0.51
+645277,ozzie albies,ATL,83.11,66.52,6.78,32,1,1,9.0,68.0,432.0,0.22,0.33

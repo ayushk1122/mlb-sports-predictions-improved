@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, mean_absolute_error, mean_squared_error
+from sklearn.calibration import CalibratedClassifierCV
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -33,28 +34,50 @@ def train_model(historical_path, today_path, target_date=None):
 
     logger.info(f"Training on {len(X_train)} historical games with {X_train.shape[1]} features")
 
-    # Train model
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
+    # Train base model
+    base_model = RandomForestClassifier(n_estimators=100, random_state=42)
+    base_model.fit(X_train, y_train)
 
-    y_pred = model.predict(X_train)
-    y_prob = model.predict_proba(X_train)[:, 1]
+    # Apply isotonic calibration to improve probability estimates
+    logger.info("Applying isotonic calibration to improve probability estimates")
+    calibrated_model = CalibratedClassifierCV(
+        estimator=base_model,
+        cv=5,
+        method='isotonic'
+    )
+    calibrated_model.fit(X_train, y_train)
 
-    acc = accuracy_score(y_train, y_pred)
-    mae = mean_absolute_error(y_train, y_pred)
-    mse = mean_squared_error(y_train, y_pred)
-    mape = np.mean(np.abs((y_train - y_pred) / np.maximum(np.abs(y_train), 1))) * 100
+    # Evaluate both models
+    y_pred_base = base_model.predict(X_train)
+    y_prob_base = base_model.predict_proba(X_train)[:, 1]
+    
+    y_pred_calibrated = calibrated_model.predict(X_train)
+    y_prob_calibrated = calibrated_model.predict_proba(X_train)[:, 1]
 
-    logger.info(f"Model Accuracy: {acc:.3f}")
-    logger.info(f"MAE: {mae:.3f}, MSE: {mse:.3f}, MAPE: {mape:.2f}%")
+    # Compare performance
+    acc_base = accuracy_score(y_train, y_pred_base)
+    acc_calibrated = accuracy_score(y_train, y_pred_calibrated)
+    
+    mae_base = mean_absolute_error(y_train, y_prob_base)
+    mae_calibrated = mean_absolute_error(y_train, y_prob_calibrated)
+    
+    mse_base = mean_squared_error(y_train, y_prob_base)
+    mse_calibrated = mean_squared_error(y_train, y_prob_calibrated)
+
+    logger.info(f"Base Model - Accuracy: {acc_base:.3f}, MAE: {mae_base:.3f}, MSE: {mse_base:.3f}")
+    logger.info(f"Calibrated Model - Accuracy: {acc_calibrated:.3f}, MAE: {mae_calibrated:.3f}, MSE: {mse_calibrated:.3f}")
+    
+    # Show probability range comparison
+    logger.info(f"Base Model Probability Range: {y_prob_base.min():.3f} - {y_prob_base.max():.3f}")
+    logger.info(f"Calibrated Model Probability Range: {y_prob_calibrated.min():.3f} - {y_prob_calibrated.max():.3f}")
 
     # Load today's features
     logger.info(f"Loading today's features from {today_path}")
     today_df = pd.read_csv(today_path)
     X_today = today_df[numeric_cols]
 
-    # Make predictions for today
-    today_prob = model.predict_proba(X_today)[:, 1]
+    # Make predictions for today using calibrated model
+    today_prob = calibrated_model.predict_proba(X_today)[:, 1]
 
     result_df = pd.DataFrame({
         "Game Date": today_df["game_date"],
