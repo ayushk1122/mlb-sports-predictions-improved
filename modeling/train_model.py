@@ -6,10 +6,34 @@ import pandas as pd
 import numpy as np
 import logging
 from datetime import datetime, timedelta
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, mean_absolute_error, mean_squared_error
 from sklearn.calibration import CalibratedClassifierCV
 import numpy as np
+
+# Try to import advanced ensemble libraries
+try:
+    import xgboost as xgb
+    XGBOOST_AVAILABLE = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
+    logging.warning("XGBoost not available. Install with: pip install xgboost")
+
+try:
+    import lightgbm as lgb
+    LIGHTGBM_AVAILABLE = True
+except ImportError:
+    LIGHTGBM_AVAILABLE = False
+    logging.warning("LightGBM not available. Install with: pip install lightgbm")
+
+try:
+    from sklearn.ensemble import StackingClassifier
+    STACKING_AVAILABLE = True
+except ImportError:
+    STACKING_AVAILABLE = False
+    logging.warning("StackingClassifier not available in this scikit-learn version")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -17,6 +41,143 @@ logger = logging.getLogger(__name__)
 # === Root directory setup ===
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
+
+def create_advanced_voting_ensemble():
+    """
+    Create an advanced voting classifier ensemble with XGBoost and LightGBM.
+    """
+    logger.info("Creating advanced voting classifier ensemble...")
+    
+    estimators = []
+    
+    # RandomForest models with different configurations
+    estimators.extend([
+        ('rf1', RandomForestClassifier(
+            n_estimators=200, 
+            max_depth=10, 
+            min_samples_split=5,
+            min_samples_leaf=2,
+            random_state=42
+        )),
+        ('rf2', RandomForestClassifier(
+            n_estimators=150, 
+            max_depth=8, 
+            min_samples_split=3,
+            min_samples_leaf=1,
+            random_state=123
+        )),
+        ('rf3', RandomForestClassifier(
+            n_estimators=100, 
+            max_depth=6, 
+            min_samples_split=2,
+            min_samples_leaf=1,
+            random_state=456
+        ))
+    ])
+    
+    # Logistic Regression
+    estimators.append(('lr', LogisticRegression(
+        random_state=42, 
+        max_iter=2000,
+        C=1.0,
+        solver='liblinear',
+        tol=1e-4
+    )))
+    
+    # XGBoost if available
+    if XGBOOST_AVAILABLE:
+        estimators.extend([
+            ('xgb1', xgb.XGBClassifier(
+                n_estimators=100,
+                max_depth=6,
+                learning_rate=0.1,
+                random_state=42,
+                eval_metric='logloss'
+            )),
+            ('xgb2', xgb.XGBClassifier(
+                n_estimators=150,
+                max_depth=4,
+                learning_rate=0.05,
+                random_state=789,
+                eval_metric='logloss'
+            ))
+        ])
+        logger.info("Added XGBoost models to ensemble")
+    
+    # LightGBM if available
+    if LIGHTGBM_AVAILABLE:
+        estimators.extend([
+            ('lgb1', lgb.LGBMClassifier(
+                n_estimators=100,
+                max_depth=6,
+                learning_rate=0.1,
+                random_state=42,
+                verbose=-1
+            )),
+            ('lgb2', lgb.LGBMClassifier(
+                n_estimators=150,
+                max_depth=4,
+                learning_rate=0.05,
+                random_state=101,
+                verbose=-1
+            ))
+        ])
+        logger.info("Added LightGBM models to ensemble")
+    
+    # Create voting classifier with soft voting
+    ensemble = VotingClassifier(
+        estimators=estimators,
+        voting='soft',
+        n_jobs=-1
+    )
+    
+    logger.info(f"Created advanced ensemble with {len(estimators)} base models")
+    return ensemble
+
+def create_stacking_ensemble():
+    """
+    Create a stacking classifier ensemble for better performance.
+    """
+    if not STACKING_AVAILABLE:
+        logger.warning("StackingClassifier not available, falling back to voting classifier")
+        return create_advanced_voting_ensemble()
+    
+    logger.info("Creating stacking classifier ensemble...")
+    
+    # Base models
+    base_models = [
+        ('rf1', RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42)),
+        ('rf2', RandomForestClassifier(n_estimators=150, max_depth=8, random_state=123)),
+        ('lr', LogisticRegression(random_state=42, max_iter=2000, solver='liblinear', tol=1e-4))
+    ]
+    
+    # Add XGBoost if available
+    if XGBOOST_AVAILABLE:
+        base_models.append(('xgb', xgb.XGBClassifier(
+            n_estimators=100, max_depth=6, random_state=42,
+            eval_metric='logloss'
+        )))
+    
+    # Add LightGBM if available
+    if LIGHTGBM_AVAILABLE:
+        base_models.append(('lgb', lgb.LGBMClassifier(
+            n_estimators=100, max_depth=6, random_state=42, verbose=-1
+        )))
+    
+    # Meta-learner (should be simple for small datasets)
+    meta_learner = LogisticRegression(random_state=42, max_iter=2000, solver='liblinear', tol=1e-4)
+    
+    # Create stacking classifier
+    ensemble = StackingClassifier(
+        estimators=base_models,
+        final_estimator=meta_learner,
+        cv=3,  # Small CV for small dataset
+        n_jobs=-1,
+        stack_method='predict_proba'  # Use probabilities for stacking
+    )
+    
+    logger.info(f"Created stacking ensemble with {len(base_models)} base models")
+    return ensemble
 
 def calculate_brier_score(predicted_probs, actual_outcomes):
     """Calculate Brier score for probabilistic predictions."""
@@ -76,7 +237,7 @@ def train_and_evaluate_model(historical_path, today_path=None, target_date=None,
     # Ensure data is sorted by date
     historical_df['game_date'] = pd.to_datetime(historical_df['game_date'])
     historical_df = historical_df.sort_values('game_date').reset_index(drop=True)
-    
+
     # Ensure only numeric columns are used for training
     non_feature_cols = [
         "actual_winner", "game_date", "home_team", "away_team",
@@ -144,39 +305,122 @@ def train_and_evaluate_model(historical_path, today_path=None, target_date=None,
     logger.info(f"Training on {len(X_train)} games with {X_train.shape[1]} features")
     logger.info(f"Testing on {len(X_test)} games")
     
-    # Train base model
-    base_model = RandomForestClassifier(n_estimators=100, random_state=42)
-    base_model.fit(X_train, y_train)
+    # Handle NaN values in training and test data
+    logger.info("Handling missing values in training data...")
     
-    # Apply isotonic calibration
-    logger.info("Applying isotonic calibration to improve probability estimates")
+    # Fill NaN values with median for numeric columns
+    X_train_clean = X_train.fillna(X_train.median())
+    X_test_clean = X_test.fillna(X_test.median())
+    
+    # Check for any remaining NaN values
+    if X_train_clean.isnull().any().any():
+        logger.warning(f"Still have NaN values in training data: {X_train_clean.isnull().sum().sum()}")
+        # Drop rows with any remaining NaN values
+        X_train_clean = X_train_clean.dropna()
+        y_train = y_train[X_train_clean.index]
+        logger.info(f"After dropping NaN rows: {len(X_train_clean)} training samples")
+    
+    if X_test_clean.isnull().any().any():
+        logger.warning(f"Still have NaN values in test data: {X_test_clean.isnull().sum().sum()}")
+        # Drop rows with any remaining NaN values
+        X_test_clean = X_test_clean.dropna()
+        y_test = y_test[X_test_clean.index]
+        logger.info(f"After dropping NaN rows: {len(X_test_clean)} test samples")
+    
+    # Train base model
+    base_model = RandomForestClassifier(n_estimators=200, random_state=42)
+    base_model.fit(X_train_clean, y_train)
+    
+    # Train multiple ensemble models for comparison
+    logger.info("Training multiple ensemble models for comparison...")
+    
+    ensemble_models = {}
+    
+    # Advanced voting ensemble
+    ensemble_models['advanced_voting'] = create_advanced_voting_ensemble()
+    ensemble_models['advanced_voting'].fit(X_train_clean, y_train)
+    
+    # Stacking ensemble (if available)
+    if STACKING_AVAILABLE:
+        ensemble_models['stacking'] = create_stacking_ensemble()
+        ensemble_models['stacking'].fit(X_train_clean, y_train)
+    
+    # Apply calibration to base model and all ensemble models
+    logger.info("Applying sigmoid calibration to improve probability estimates")
     calibrated_model = CalibratedClassifierCV(
         estimator=base_model,
         cv=5,
-        method='isotonic'
+        method='sigmoid'
     )
-    calibrated_model.fit(X_train, y_train)
+    calibrated_model.fit(X_train_clean, y_train)
+    
+    calibrated_ensembles = {}
+    for name, ensemble in ensemble_models.items():
+        calibrated_ensembles[name] = CalibratedClassifierCV(
+            estimator=ensemble,
+            cv=5,
+            method='sigmoid'
+        )
+        calibrated_ensembles[name].fit(X_train_clean, y_train)
     
     # Evaluate on TEST data (unseen data)
     logger.info("\n=== EVALUATION ON UNSEEN TEST DATA ===")
     
     # Base model evaluation
-    y_pred_base = base_model.predict(X_test)
-    y_prob_base = base_model.predict_proba(X_test)[:, 1]
+    y_pred_base = base_model.predict(X_test_clean)
+    y_prob_base = base_model.predict_proba(X_test_clean)[:, 1]
     
     acc_base = accuracy_score(y_test, y_pred_base)
     mae_base = mean_absolute_error(y_test, y_prob_base)
     mse_base = mean_squared_error(y_test, y_prob_base)
     brier_base = calculate_brier_score(y_prob_base, y_test)
     
+    # Evaluate all ensemble models
+    ensemble_results = {}
+    for name, ensemble in ensemble_models.items():
+        y_pred_ensemble = ensemble.predict(X_test_clean)
+        y_prob_ensemble = ensemble.predict_proba(X_test_clean)[:, 1]
+        
+        acc_ensemble = accuracy_score(y_test, y_pred_ensemble)
+        mae_ensemble = mean_absolute_error(y_test, y_prob_ensemble)
+        mse_ensemble = mean_squared_error(y_test, y_prob_ensemble)
+        brier_ensemble = calculate_brier_score(y_prob_ensemble, y_test)
+        
+        ensemble_results[name] = {
+            'accuracy': acc_ensemble,
+            'mae': mae_ensemble,
+            'mse': mse_ensemble,
+            'brier': brier_ensemble,
+            'prob_range': (y_prob_ensemble.min(), y_prob_ensemble.max())
+        }
+    
     # Calibrated model evaluation
-    y_pred_calibrated = calibrated_model.predict(X_test)
-    y_prob_calibrated = calibrated_model.predict_proba(X_test)[:, 1]
+    y_pred_calibrated = calibrated_model.predict(X_test_clean)
+    y_prob_calibrated = calibrated_model.predict_proba(X_test_clean)[:, 1]
     
     acc_calibrated = accuracy_score(y_test, y_pred_calibrated)
     mae_calibrated = mean_absolute_error(y_test, y_prob_calibrated)
     mse_calibrated = mean_squared_error(y_test, y_prob_calibrated)
     brier_calibrated = calculate_brier_score(y_prob_calibrated, y_test)
+    
+    # Evaluate calibrated ensemble models
+    calibrated_ensemble_results = {}
+    for name, calibrated_ensemble in calibrated_ensembles.items():
+        y_pred_calibrated_ensemble = calibrated_ensemble.predict(X_test_clean)
+        y_prob_calibrated_ensemble = calibrated_ensemble.predict_proba(X_test_clean)[:, 1]
+        
+        acc_calibrated_ensemble = accuracy_score(y_test, y_pred_calibrated_ensemble)
+        mae_calibrated_ensemble = mean_absolute_error(y_test, y_prob_calibrated_ensemble)
+        mse_calibrated_ensemble = mean_squared_error(y_test, y_prob_calibrated_ensemble)
+        brier_calibrated_ensemble = calculate_brier_score(y_prob_calibrated_ensemble, y_test)
+        
+        calibrated_ensemble_results[name] = {
+            'accuracy': acc_calibrated_ensemble,
+            'mae': mae_calibrated_ensemble,
+            'mse': mse_calibrated_ensemble,
+            'brier': brier_calibrated_ensemble,
+            'prob_range': (y_prob_calibrated_ensemble.min(), y_prob_calibrated_ensemble.max())
+        }
     
     # Print results
     logger.info(f"Base Model Performance (Test Set):")
@@ -186,6 +430,15 @@ def train_and_evaluate_model(historical_path, today_path=None, target_date=None,
     logger.info(f"  Brier Score: {brier_base:.4f}")
     logger.info(f"  Probability Range: {y_prob_base.min():.3f} - {y_prob_base.max():.3f}")
     
+    # Print ensemble results
+    for name, results in ensemble_results.items():
+        logger.info(f"\n{name.replace('_', ' ').title()} Ensemble Performance (Test Set):")
+        logger.info(f"  Accuracy: {results['accuracy']:.3f} ({results['accuracy']*100:.1f}%)")
+        logger.info(f"  MAE: {results['mae']:.3f}")
+        logger.info(f"  MSE: {results['mse']:.3f}")
+        logger.info(f"  Brier Score: {results['brier']:.4f}")
+        logger.info(f"  Probability Range: {results['prob_range'][0]:.3f} - {results['prob_range'][1]:.3f}")
+    
     logger.info(f"\nCalibrated Model Performance (Test Set):")
     logger.info(f"  Accuracy: {acc_calibrated:.3f} ({acc_calibrated*100:.1f}%)")
     logger.info(f"  MAE: {mae_calibrated:.3f}")
@@ -193,27 +446,100 @@ def train_and_evaluate_model(historical_path, today_path=None, target_date=None,
     logger.info(f"  Brier Score: {brier_calibrated:.4f}")
     logger.info(f"  Probability Range: {y_prob_calibrated.min():.3f} - {y_prob_calibrated.max():.3f}")
     
-    # Brier score breakdown for calibrated model
-    logger.info(f"\nBrier Score Breakdown (Calibrated Model):")
-    brier_breakdown = analyze_brier_score_breakdown(y_prob_calibrated, y_test)
+    # Print calibrated ensemble results
+    for name, results in calibrated_ensemble_results.items():
+        logger.info(f"\nCalibrated {name.replace('_', ' ').title()} Performance (Test Set):")
+        logger.info(f"  Accuracy: {results['accuracy']:.3f} ({results['accuracy']*100:.1f}%)")
+        logger.info(f"  MAE: {results['mae']:.3f}")
+        logger.info(f"  MSE: {results['mse']:.3f}")
+        logger.info(f"  Brier Score: {results['brier']:.4f}")
+        logger.info(f"  Probability Range: {results['prob_range'][0]:.3f} - {results['prob_range'][1]:.3f}")
+    
+    # Find best performing model
+    all_results = {
+        'base': {'accuracy': acc_base, 'brier': brier_base},
+        'calibrated_base': {'accuracy': acc_calibrated, 'brier': brier_calibrated}
+    }
+    
+    for name, results in ensemble_results.items():
+        all_results[f'ensemble_{name}'] = {'accuracy': results['accuracy'], 'brier': results['brier']}
+    
+    for name, results in calibrated_ensemble_results.items():
+        all_results[f'calibrated_{name}'] = {'accuracy': results['accuracy'], 'brier': results['brier']}
+    
+    # Find best model by Brier score (lower is better)
+    best_model_name = min(all_results.keys(), key=lambda x: all_results[x]['brier'])
+    best_accuracy = all_results[best_model_name]['accuracy']
+    best_brier = all_results[best_model_name]['brier']
+    
+    logger.info(f"\n=== BEST PERFORMING MODEL ===")
+    logger.info(f"Model: {best_model_name}")
+    logger.info(f"Accuracy: {best_accuracy:.3f} ({best_accuracy*100:.1f}%)")
+    logger.info(f"Brier Score: {best_brier:.4f}")
+    
+    # Brier score breakdown for best model
+    if best_model_name.startswith('calibrated_'):
+        ensemble_name = best_model_name.replace('calibrated_', '')
+        best_probabilities = calibrated_ensembles[ensemble_name].predict_proba(X_test_clean)[:, 1]
+    elif best_model_name.startswith('ensemble_'):
+        ensemble_name = best_model_name.replace('ensemble_', '')
+        best_probabilities = ensemble_models[ensemble_name].predict_proba(X_test_clean)[:, 1]
+    elif best_model_name == 'calibrated_base':
+        best_probabilities = y_prob_calibrated
+    else:
+        best_probabilities = y_prob_base
+    
+    logger.info(f"\nBrier Score Breakdown (Best Model - {best_model_name}):")
+    brier_breakdown = analyze_brier_score_breakdown(best_probabilities, y_test)
     logger.info(brier_breakdown.to_string(index=False))
     
-    # Calculate improvement
-    brier_improvement = ((brier_base - brier_calibrated) / brier_base) * 100
-    acc_improvement = ((acc_calibrated - acc_base) / acc_base) * 100 if acc_base > 0 else 0
+    # Calculate improvements
+    brier_improvement_base = ((brier_base - brier_calibrated) / brier_base) * 100
+    acc_improvement_base = ((acc_calibrated - acc_base) / acc_base) * 100 if acc_base > 0 else 0
     
-    logger.info(f"\nImprovement from Calibration:")
-    logger.info(f"  Brier Score: {brier_improvement:+.1f}% ({brier_base:.4f} → {brier_calibrated:.4f})")
-    logger.info(f"  Accuracy: {acc_improvement:+.1f}% ({acc_base:.3f} → {acc_calibrated:.3f})")
+    brier_improvement_best = ((brier_base - best_brier) / brier_base) * 100
+    acc_improvement_best = ((best_accuracy - acc_base) / acc_base) * 100 if acc_base > 0 else 0
     
-    # Performance consistency analysis
+    logger.info(f"\nImprovement from Calibration (Base Model):")
+    logger.info(f"  Brier Score: {brier_improvement_base:+.1f}% ({brier_base:.4f} → {brier_calibrated:.4f})")
+    logger.info(f"  Accuracy: {acc_improvement_base:+.1f}% ({acc_base:.3f} → {acc_calibrated:.3f})")
+    
+    logger.info(f"\nImprovement from Best Model ({best_model_name}):")
+    logger.info(f"  Brier Score: {brier_improvement_best:+.1f}% ({brier_base:.4f} → {best_brier:.4f})")
+    logger.info(f"  Accuracy: {acc_improvement_best:+.1f}% ({acc_base:.3f} → {best_accuracy:.3f})")
+    
+    # Performance consistency analysis using best model
     test_dates = test_df['game_date'].dt.date.unique()
     daily_performance = []
+
+    # Feature importance from base RandomForest model (ensemble doesn't have single feature_importances_)
+    feature_importance = pd.DataFrame({
+        'feature': numeric_cols,
+        'importance': base_model.feature_importances_
+    }).sort_values('importance', ascending=False)
+    
+    logger.info(f"\nTop 22 Features (from base RandomForest):")
+    logger.info(feature_importance.head(22).to_string(index=False))
+    
+    # Get the cleaned test dataframe for date analysis
+    test_df_clean = test_df.loc[X_test_clean.index].copy()
+    
+    # Get best model probabilities for daily analysis
+    if best_model_name.startswith('calibrated_'):
+        ensemble_name = best_model_name.replace('calibrated_', '')
+        best_probabilities = calibrated_ensembles[ensemble_name].predict_proba(X_test_clean)[:, 1]
+    elif best_model_name.startswith('ensemble_'):
+        ensemble_name = best_model_name.replace('ensemble_', '')
+        best_probabilities = ensemble_models[ensemble_name].predict_proba(X_test_clean)[:, 1]
+    elif best_model_name == 'calibrated_base':
+        best_probabilities = y_prob_calibrated
+    else:
+        best_probabilities = y_prob_base
     
     for date in test_dates:
-        date_mask = test_df['game_date'].dt.date == date
+        date_mask = test_df_clean['game_date'].dt.date == date
         if date_mask.sum() > 0:
-            date_probs = y_prob_calibrated[date_mask]
+            date_probs = best_probabilities[date_mask]
             date_actuals = y_test[date_mask]
             date_acc = accuracy_score(date_actuals, date_probs > 0.5)
             date_brier = calculate_brier_score(date_probs, date_actuals)
@@ -226,23 +552,38 @@ def train_and_evaluate_model(historical_path, today_path=None, target_date=None,
     
     if daily_performance:
         daily_df = pd.DataFrame(daily_performance)
-        logger.info(f"\nDaily Performance Consistency:")
+        logger.info(f"\nDaily Performance Consistency (Best Model):")
         logger.info(f"  Average Daily Accuracy: {daily_df['accuracy'].mean():.3f}")
         logger.info(f"  Average Daily Brier Score: {daily_df['brier_score'].mean():.4f}")
         logger.info(f"  Accuracy Std Dev: {daily_df['accuracy'].std():.3f}")
         logger.info(f"  Brier Score Std Dev: {daily_df['brier_score'].std():.4f}")
         logger.info(f"  Accuracy Range: {daily_df['accuracy'].min():.3f} - {daily_df['accuracy'].max():.3f}")
     
-    # Make predictions for today if provided
     if today_path and os.path.exists(today_path):
         logger.info(f"\n=== MAKING PREDICTIONS FOR TODAY ===")
         logger.info(f"Loading today's features from {today_path}")
         today_df = pd.read_csv(today_path)
         X_today = today_df[numeric_cols]
+
+        # Handle NaN values in today's data
+        X_today_clean = X_today.fillna(X_today.median())
+        if X_today_clean.isnull().any().any():
+            logger.warning(f"Still have NaN values in today's data, dropping rows")
+            X_today_clean = X_today_clean.dropna()
+            today_df = today_df.loc[X_today_clean.index]
         
-        # Use calibrated model for predictions
-        today_prob = calibrated_model.predict_proba(X_today)[:, 1]
-        
+        # Use best model for predictions
+        if best_model_name.startswith('calibrated_'):
+            ensemble_name = best_model_name.replace('calibrated_', '')
+            today_prob = calibrated_ensembles[ensemble_name].predict_proba(X_today_clean)[:, 1]
+        elif best_model_name.startswith('ensemble_'):
+            ensemble_name = best_model_name.replace('ensemble_', '')
+            today_prob = ensemble_models[ensemble_name].predict_proba(X_today_clean)[:, 1]
+        elif best_model_name == 'calibrated_base':
+            today_prob = calibrated_model.predict_proba(X_today_clean)[:, 1]
+        else:
+            today_prob = base_model.predict_proba(X_today_clean)[:, 1]
+
         result_df = pd.DataFrame({
             "Game Date": today_df["game_date"],
             "Home Team": today_df["home_team"],
@@ -252,24 +593,19 @@ def train_and_evaluate_model(historical_path, today_path=None, target_date=None,
                                    "Pick: " + today_df["home_team"],
                                    "Pick: " + today_df["away_team"])
         })
-        
+
         # Save predictions
-        if target_date is not None:
-            output_name = f"readable_win_predictions_for_{target_date.strftime('%Y-%m-%d')}_using_{datetime.today().strftime('%Y-%m-%d')}.csv"
-        else:
-            output_name = f"readable_win_predictions_for_{today_df['game_date'].iloc[0]}_using_{datetime.today().strftime('%Y-%m-%d')}.csv"
-        
-        output_path = PROCESSED_DIR / output_name
+        output_path = PROCESSED_DIR / "predictions" / f"readable_win_predictions_for_{target_date}_using_{datetime.now().strftime('%Y-%m-%d')}.csv"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         result_df.to_csv(output_path, index=False)
-        logger.info(f"Predictions saved to {output_path}")
-        
+        logger.info(f"Predictions saved to: {output_path}")
+
         return result_df
-    
+
     return {
-        'test_accuracy': acc_calibrated,
-        'test_brier_score': brier_calibrated,
-        'test_mae': mae_calibrated,
-        'test_mse': mse_calibrated,
+        'test_accuracy': best_accuracy,
+        'test_brier_score': best_brier,
+        'best_model': best_model_name,
         'daily_performance': daily_performance if daily_performance else None
     }
 
@@ -283,7 +619,7 @@ if __name__ == "__main__":
                        help='Path to today\'s features CSV (optional)')
     parser.add_argument('--train-days', type=int, default=45,
                        help='Number of days to use for training')
-    parser.add_argument('--test-days', type=int, default=15,
+    parser.add_argument('--test-days', type=int, default=30,
                        help='Number of days to use for testing')
     parser.add_argument('--no-rolling', action='store_true',
                        help='Use fixed split instead of rolling window')
@@ -294,7 +630,7 @@ if __name__ == "__main__":
     
     # Default paths
     if args.historical is None:
-        args.historical = PROCESSED_DIR / "historical_main_features.csv"
+        args.historical = PROCESSED_DIR / "historical_main_features_enhanced.csv"
     
     if args.today is None:
         today_str = datetime.today().strftime('%Y-%m-%d')
